@@ -371,9 +371,7 @@ def parse_args():
         type=str,
         help="Options are ['wandb', 'tensorboard', 'wandb,tensorboard']",
     )
-    parser.add_argument(
-        "--wandb-notes", default="", type=str, help="Notes if logging with wandb"
-    )
+
     parser.add_argument(
         "--C", type=float, default=3.16, help="inverse regularizer for logistic reg."
     )

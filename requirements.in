@@ -1,0 +1,14 @@
+torch
+torchaudio
+soundfile
+librosa
+torchlibrosa
+webdataset
+scipy
+scikit-learn
+pandas
+h5py
+llvmlite
+tqdm
+transformers
+tensorboard

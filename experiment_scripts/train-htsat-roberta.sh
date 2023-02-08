@@ -49,7 +49,7 @@ srun --comment clap --cpu_bind=v --accel-bind=gn python -m training.main \
     --amodel HTSAT-tiny \
     --tmodel roberta \
     --warmup 3200 \
-    --report-to "wandb" \
+    --report-to "tensorboard" \
     --wandb-notes "10.16-clap-dataset-1#-htsat-roberta" \
     --datasetnames "Clotho" "audiocaps" \
     --datasetinfos "train" "unbalanced_train" \

@@ -1,17 +1,12 @@
-from inspect import getargs
 import logging
 import os
 import random
 from datetime import datetime
-import bisect
 import copy
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
-from torch import optim
 from torch.cuda.amp import GradScaler
-import faulthandler
-import pathlib
 
 try:
     import wandb
@@ -126,9 +121,8 @@ def random_seed(seed=42, rank=0):
     np.random.seed(seed + rank)
     random.seed(seed + rank)
 
-
-def main():
-    args = parse_args()
+def _parse_args(args):
+    
     # sanitize model name for filesystem / uri use, easier if we don't use / in name as a rule?
     args.amodel = args.amodel.replace("/", "-")
     # download sizes.json file
@@ -137,11 +131,6 @@ def main():
     # print("setting up faulthandler")
     # faulthandler.register(10)
 
-    random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
-    np.random.seed(args.seed)
     if args.tmodel == "bert" or args.tmodel == "roberta" or args.tmodel == "bart":
         assert (
             args.pretrained == "" or args.pretrained is None
@@ -232,7 +221,51 @@ def main():
         logging.info(f"Running with a single process. Device {args.device}.")
 
     logging.info(f"openai cache dir: {os.path.expanduser(args.openai_model_cache_dir)}")
+    
+    return args, device
 
+
+def get_params_for_epoc(args, model):
+    exclude = (
+        lambda n, p: p.ndim < 2
+        or "bn" in n
+        or "ln" in n
+        or "bias" in n
+        or "logit_scale" in n
+    )
+    include = lambda n, p: not exclude(n, p)
+
+    named_parameters = list(model.named_parameters())
+
+    # freeze text encoder
+    text_freeze_parameters = [
+        p
+        for n, p in named_parameters
+        if 'text_branch' in n
+    ]
+
+    if args.freeze_text:
+        print("Freeze Text!!!!")
+        for k in text_freeze_parameters:
+            k.requires_grad = False
+
+    gain_or_bias_params = [
+        p for n, p in named_parameters if exclude(n, p) and p.requires_grad
+    ]
+    rest_params = [p for n, p in named_parameters if include(n, p) and p.requires_grad]
+    return exclude,include,named_parameters,text_freeze_parameters,gain_or_bias_params,rest_params
+
+
+def main():
+    args = parse_args()
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    np.random.seed(args.seed)
+    
+    args, device  = _parse_args(args)
+    
     model, model_cfg = create_model(
         args.amodel,
         args.tmodel,
@@ -284,33 +317,7 @@ def main():
     if args.trace:
         assert "train" not in data, "Cannot train with traced model"
 
-    exclude = (
-        lambda n, p: p.ndim < 2
-        or "bn" in n
-        or "ln" in n
-        or "bias" in n
-        or "logit_scale" in n
-    )
-    include = lambda n, p: not exclude(n, p)
-
-    named_parameters = list(model.named_parameters())
-
-    # freeze text encoder
-    text_freeze_parameters = [
-        p
-        for n, p in named_parameters
-        if 'text_branch' in n
-    ]
-
-    if args.freeze_text:
-        print("Freeze Text!!!!")
-        for k in text_freeze_parameters:
-            k.requires_grad = False
-
-    gain_or_bias_params = [
-        p for n, p in named_parameters if exclude(n, p) and p.requires_grad
-    ]
-    rest_params = [p for n, p in named_parameters if include(n, p) and p.requires_grad]
+    exclude, include, named_parameters, text_freeze_parameters, gain_or_bias_params, rest_params = get_params_for_epoc(args, model)
 
     # set wd-related params to 0 if use adam optimizer
     if args.optimizer == "adam":
@@ -574,7 +581,6 @@ def main():
 
     if args.wandb and is_master(args):
         wandb.finish()
-
 
 def copy_codebase(args):
     from shutil import copytree, ignore_patterns
